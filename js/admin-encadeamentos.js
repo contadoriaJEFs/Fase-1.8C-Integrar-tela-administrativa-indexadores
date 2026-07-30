@@ -713,11 +713,6 @@ function adminImportarJSON(json) {
     // Chamar adminAtualizarSelectsIndice() aqui pode substituir índices incompatíveis preservados.
 }
 
-// Não chamar adminAtualizarSelectsIndice() aqui.
-// As linhas importadas já foram criadas com preservarIncompativel = true.
-// Chamar adminAtualizarSelectsIndice() aqui pode substituir índices incompatíveis preservados.
-}
-
 // =====================================================================
 // FUNÇÃO PARA CARREGAR PARÂMETROS NA GUIA 5
 // =====================================================================
