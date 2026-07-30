@@ -1,5 +1,102 @@
 # Changelog
+## Versão 3.4-alpha – Fase 1.8C – Integração da Tela Administrativa com a Base de Indexadores (30/07/2026)
 
+### Adicionado
+- Integrada a tela administrativa de parâmetros com `window.INDEXADORES_ATUALIZACAO`.
+- Criadas funções auxiliares para consulta e validação dos indexadores:
+  - `adminObterIndicesDisponiveisPorTipo()`;
+  - `adminIndiceExisteNaBase()`;
+  - `adminIndiceCompativelComTipo()`.
+- Implementado preenchimento dinâmico dos selects de índices a partir de `data/indexadores.js`.
+- Implementada diferenciação entre uso manual e importação de JSON para tratamento de índices incompatíveis.
+- Implementada preservação de índices inexistentes na base durante importação de JSON.
+- Implementada preservação de índices incompatíveis durante importação de JSON, para fins de auditoria.
+- Criado tutorial administrativo:
+  - `TUTORIAL_ADMIN_PARAMETROS.md`.
+
+### Alterado
+- Removida a dependência de listas fixas de índices dentro de `js/admin-encadeamentos.js`.
+- A tela administrativa passou a consultar dinamicamente os índices disponíveis em `window.INDEXADORES_ATUALIZACAO`.
+- O modal administrativo passou a listar índices conforme o tipo do parâmetro:
+  - `correcao_monetaria`;
+  - `juros_mora`;
+  - `selic`, reservado para fase futura;
+  - `taxa_legal`, reservado para fase futura.
+- O texto exibido nos selects passou a mostrar nome amigável e código técnico do índice.
+- O valor gravado nos JSONs de parâmetros permanece sendo o código técnico do índice, como:
+  - `INPC`;
+  - `IPCAE`;
+  - `JUROS_MORA_1_AM`;
+  - `POUPANCA`.
+- Ajustado o comportamento da importação de JSON para preservar códigos técnicos antigos ou inconsistentes, quando necessário.
+- Ajustada a lógica de atualização dos selects ao trocar manualmente o tipo do parâmetro.
+
+### Corrigido
+- Corrigida a exibição de índices incompatíveis no uso manual da tela administrativa.
+- Impedido que índices de correção monetária apareçam em encadeamentos de juros de mora.
+- Impedido que índices de juros de mora apareçam em encadeamentos de correção monetária.
+- Corrigido o comportamento ao mudar manualmente o tipo do parâmetro:
+  - índice incompatível existente na base é substituído por índice compatível.
+- Corrigida a importação de JSON antigo ou inconsistente:
+  - índice inexistente é preservado com aviso;
+  - índice incompatível é preservado com aviso;
+  - exportação posterior mantém o código técnico original.
+- Removida chamada indevida a `adminAtualizarSelectsIndice()` ao final da importação de JSON, evitando substituição silenciosa de índices importados.
+- Corrigido erro de sintaxe em `js/admin-encadeamentos.js` após ajuste manual da função `adminImportarJSON(json)`.
+- Restaurada a abertura do modal administrativo após correção da sintaxe.
+
+### Preservado
+- Nenhuma alteração em `data/indexadores.js`.
+- Nenhuma alteração em `data/indices.js`.
+- Nenhuma alteração em `js/diferencas.js`.
+- Nenhuma alteração em `js/app.js`.
+- Nenhuma alteração em `js/json.js`.
+- Nenhuma alteração em `js/motor-evolucao.js`.
+- Nenhuma alteração em `js/beneficios-recebidos.js`.
+- Nenhuma alteração em `js/relatorios.js`.
+- Nenhuma alteração em `css/styles.css`.
+- Nenhuma alteração na estrutura do JSON do caso.
+- Nenhuma alteração no motor previdenciário.
+- Nenhum cálculo financeiro implementado nesta fase.
+- Guia 5 continua apenas carregando parâmetros, sem realizar atualização monetária, juros, SELIC ou taxa legal.
+
+### Homologação
+
+Testes aprovados:
+
+- Sistema abriu sem erro crítico no Console após correção de sintaxe.
+- `window.INDEXADORES_ATUALIZACAO` permaneceu acessível no Console.
+- Modal administrativo abriu por `CTRL + SHIFT + E`.
+- Correção Monetária listou apenas índices de correção monetária.
+- Juros de Mora listou apenas índices de juros de mora.
+- Índices de juros não apareceram no tipo Correção Monetária.
+- Índices de correção não apareceram no tipo Juros de Mora.
+- JSON de correção carregado no campo de juros foi rejeitado corretamente.
+- JSON de juros carregado no campo de correção foi rejeitado corretamente.
+- JSON com índice inexistente `XYZ` foi carregado com aviso.
+- JSON com índice inexistente `XYZ` foi preservado sem substituição automática.
+- JSON com índice incompatível `INPC` em parâmetro `juros_mora` foi importado com aviso.
+- Índice incompatível importado foi preservado no modal como:
+  `INPC (incompatível com juros_mora)`.
+- Exportação posterior manteve o código técnico original:
+  `"indice": "INPC"`.
+- Guia 5 continuou carregando JSONs de correção monetária e juros de mora.
+- Importação e exportação do JSON do caso continuaram funcionando.
+- Guia 4 permaneceu preservada.
+- Motor de evolução previdenciária permaneceu funcional.
+- Nenhum cálculo financeiro foi implementado nesta fase.
+
+### Observação Técnica
+Esta fase integrou a tela administrativa à base de indexadores criada na Fase 1.8B.  
+A partir desta fase, os selects de índices deixam de depender de listas fixas internas e passam a consultar `window.INDEXADORES_ATUALIZACAO`.
+
+A tela administrativa diferencia dois fluxos:
+
+- No uso manual, índices incompatíveis com o tipo selecionado são substituídos por índices compatíveis.
+- Na importação de JSON, índices inexistentes ou incompatíveis são preservados com aviso, para evitar alteração silenciosa de arquivos antigos ou inconsistentes.
+
+A Guia 5 ainda não realiza cálculo de correção monetária, juros, SELIC ou taxa legal.  
+A próxima etapa recomendada é a Fase 1.8D, destinada a espelhar as diferenças da Guia 4 na Guia 5.
 ## Versão 3.4-alpha – Fase 1.8B – Base de Indexadores de Atualização (29/07/2026)
 
 ### Adicionado
