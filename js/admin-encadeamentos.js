@@ -1,8 +1,11 @@
 // =====================================================================
-// ADMINISTRAÇÃO DE ENCADEAMENTOS – Fase 1.8A (CORRIGIDO)
+// ADMINISTRAÇÃO DE ENCADEAMENTOS – Fase 1.8C (VERSÃO FINAL)
 // =====================================================================
 // Gerencia criação, validação, importação/exportação de JSONs de parâmetros
-// de correção monetária e juros de mora. Nenhum cálculo financeiro.
+// de correção monetária e juros de mora.
+// Índices obtidos dinamicamente de window.INDEXADORES_ATUALIZACAO.
+// Preserva índices importados mesmo se incompatíveis (com aviso),
+// mas substitui automaticamente na criação/manual ao mudar tipo.
 // =====================================================================
 
 window.parametrosCorrecaoAtual = null;
@@ -10,7 +13,7 @@ window.parametrosJurosAtual = null;
 window.parametrosSelicAtual = null;
 
 // =====================================================================
-// AUXILIARES (sem conflito com funções de outros arquivos)
+// AUXILIARES
 // =====================================================================
 
 function adminCompetenciaParaNumero(str) {
@@ -69,6 +72,61 @@ function adminDataAtualFormatada() {
     var mes = String(agora.getMonth() + 1).padStart(2, '0');
     var ano = agora.getFullYear();
     return dia + '/' + mes + '/' + ano;
+}
+
+// =====================================================================
+// FUNÇÕES AUXILIARES PARA VERIFICAÇÃO DE ÍNDICES
+// =====================================================================
+
+function adminIndiceExisteNaBase(codigo) {
+    if (!window.INDEXADORES_ATUALIZACAO) return false;
+    return !!window.INDEXADORES_ATUALIZACAO[codigo];
+}
+
+function adminIndiceCompativelComTipo(codigo, tipoParametro) {
+    if (!window.INDEXADORES_ATUALIZACAO) return false;
+    var item = window.INDEXADORES_ATUALIZACAO[codigo];
+    if (!item) return false;
+    return item.tipo === tipoParametro;
+}
+
+function adminObterIndicesDisponiveisPorTipo(tipoParametro) {
+    if (!window.INDEXADORES_ATUALIZACAO) {
+        return [];
+    }
+
+    var resultados = [];
+    var base = window.INDEXADORES_ATUALIZACAO;
+
+    for (var chave in base) {
+        if (base.hasOwnProperty(chave)) {
+            var item = base[chave];
+            if (item.tipo === tipoParametro) {
+                resultados.push({
+                    codigo: chave,
+                    nome: item.nome || chave,
+                    descricao: item.descricao || ''
+                });
+            }
+        }
+    }
+
+    resultados.sort(function(a, b) {
+        return a.nome.localeCompare(b.nome);
+    });
+
+    return resultados;
+}
+
+function adminVerificarBaseIndexadores() {
+    if (!window.INDEXADORES_ATUALIZACAO) {
+        adminExibirMensagem(
+            'Aviso: base de indexadores não carregada. Verifique data/indexadores.js.',
+            'warning'
+        );
+        return false;
+    }
+    return true;
 }
 
 // =====================================================================
@@ -131,7 +189,6 @@ function criarModalAdmin() {
                         </tr>
                     </thead>
                     <tbody id="adminTabelaPeriodos">
-                        <!-- linhas serão inseridas dinamicamente -->
                     </tbody>
                 </table>
             </div>
@@ -150,6 +207,13 @@ function criarModalAdmin() {
     overlay.appendChild(modalContent);
     document.body.appendChild(overlay);
 
+    if (!window.INDEXADORES_ATUALIZACAO) {
+        adminExibirMensagem(
+            'Aviso: base de indexadores não carregada. Verifique data/indexadores.js.',
+            'warning'
+        );
+    }
+
     var tbody = document.getElementById('adminTabelaPeriodos');
     if (tbody) adminAdicionarLinhaPeriodo();
 
@@ -162,7 +226,7 @@ function criarModalAdmin() {
 }
 
 // =====================================================================
-// EVENTOS DO MODAL (executados uma única vez)
+// EVENTOS DO MODAL
 // =====================================================================
 
 function vincularEventosModal() {
@@ -175,7 +239,7 @@ function vincularEventosModal() {
     });
 
     document.getElementById('adminAdicionarLinha').addEventListener('click', function() {
-        adminAdicionarLinhaPeriodo();
+        adminAdicionarLinhaPeriodo(); // preservarIncompativel = false (padrão)
     });
 
     document.getElementById('adminTipoParametro').addEventListener('change', function() {
@@ -185,19 +249,31 @@ function vincularEventosModal() {
 
     document.getElementById('adminValidar').addEventListener('click', function() {
         var dados = adminColetarDados();
-        var erros = adminValidarDados(dados);
-        if (erros.length === 0) {
-            adminExibirMensagem('✅ Encadeamento válido!', 'success');
+        var resultado = adminValidarDados(dados);
+        if (resultado.erros.length === 0) {
+            var msg = '✅ Encadeamento válido!';
+            if (resultado.avisos.length > 0) {
+                msg += '\n⚠️ Avisos:\n' + resultado.avisos.join('\n');
+            }
+            adminExibirMensagem(msg, 'success');
         } else {
-            adminExibirMensagem('❌ Erros encontrados:\n' + erros.join('\n'), 'error');
+            var msg = '❌ Erros:\n' + resultado.erros.join('\n');
+            if (resultado.avisos.length > 0) {
+                msg += '\n⚠️ Avisos:\n' + resultado.avisos.join('\n');
+            }
+            adminExibirMensagem(msg, 'error');
         }
     });
 
     document.getElementById('adminExportar').addEventListener('click', function() {
         var dados = adminColetarDados();
-        var erros = adminValidarDados(dados);
-        if (erros.length > 0) {
-            adminExibirMensagem('❌ Não é possível exportar: ' + erros.join('\n'), 'error');
+        var resultado = adminValidarDados(dados);
+        if (resultado.erros.length > 0) {
+            var msg = '❌ Não é possível exportar:\n' + resultado.erros.join('\n');
+            if (resultado.avisos.length > 0) {
+                msg += '\n⚠️ Avisos:\n' + resultado.avisos.join('\n');
+            }
+            adminExibirMensagem(msg, 'error');
             return;
         }
         adminExportarJSON(dados);
@@ -229,34 +305,54 @@ function vincularEventosModal() {
 // =====================================================================
 
 function adminObterIndicesDisponiveis() {
-    var tipo = document.getElementById('adminTipoParametro').value;
-    if (tipo === 'correcao_monetaria') {
-        return ['INPC', 'IPCAE', 'IPCA', 'IGPDI', 'IGPM', 'TR', 'IRSM', 'URV', 'IPC_R', 'ORTN', 'OTN', 'BTN'];
-    } else if (tipo === 'juros_mora') {
-        return ['JUROS_MORA_1_AM', 'JUROS_MORA_05_AM', 'POUPANCA', 'TAXA_LEGAL', 'SELIC'];
-    }
-    return ['INPC'];
+    var selectTipo = document.getElementById('adminTipoParametro');
+    var tipo = selectTipo ? selectTipo.value : 'correcao_monetaria';
+    return adminObterIndicesDisponiveisPorTipo(tipo);
 }
 
-function adminCriarSelectIndice(valorAtual) {
-    var indices = adminObterIndicesDisponiveis();
+function adminCriarSelectIndice(valorAtual, preservarIncompativel) {
+    preservarIncompativel = preservarIncompativel || false;
+    var tipoAtual = document.getElementById('adminTipoParametro').value;
+    var indices = adminObterIndicesDisponiveisPorTipo(tipoAtual);
     var html = '<select class="admin-select-indice w-full px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">';
-    indices.forEach(function(idx) {
-        var selected = (idx === valorAtual) ? 'selected' : '';
-        html += '<option value="' + idx + '" ' + selected + '>' + idx + '</option>';
-    });
+
+    var existeNaBase = adminIndiceExisteNaBase(valorAtual);
+    var compativel = adminIndiceCompativelComTipo(valorAtual, tipoAtual);
+
+    // Caso especial: preservar incompatível (importação)
+    if (preservarIncompativel && valorAtual && existeNaBase && !compativel) {
+        html += '<option value="' + valorAtual + '" selected>' + valorAtual + ' (incompatível com ' + tipoAtual + ')</option>';
+    }
+
+    // Caso: índice não existe na base
+    if (valorAtual && !existeNaBase) {
+        html += '<option value="' + valorAtual + '" selected>' + valorAtual + ' (não cadastrado na base)</option>';
+    }
+
+    // Índices compatíveis
+    if (indices.length === 0) {
+        html += '<option value="">-- Nenhum índice disponível --</option>';
+    } else {
+        indices.forEach(function(item) {
+            var selected = (item.codigo === valorAtual && compativel) ? 'selected' : '';
+            var label = item.nome + ' (' + item.codigo + ')';
+            html += '<option value="' + item.codigo + '" ' + selected + '>' + label + '</option>';
+        });
+    }
+
     html += '</select>';
     return html;
 }
 
-function adminAdicionarLinhaPeriodo(indice, inicio, fim) {
+function adminAdicionarLinhaPeriodo(indice, inicio, fim, preservarIncompativel) {
+    preservarIncompativel = preservarIncompativel || false;
     var tbody = document.getElementById('adminTabelaPeriodos');
     if (!tbody) return;
 
     var tr = document.createElement('tr');
     tr.className = 'border-b border-slate-200';
 
-    var selectIndice = adminCriarSelectIndice(indice || '');
+    var selectIndice = adminCriarSelectIndice(indice || '', preservarIncompativel);
 
     tr.innerHTML = `
         <td class="p-2">${selectIndice}</td>
@@ -289,14 +385,57 @@ function adminAdicionarLinhaPeriodo(indice, inicio, fim) {
 }
 
 function adminAtualizarSelectsIndice() {
+    var tipoAtual = document.getElementById('adminTipoParametro').value;
+    var indices = adminObterIndicesDisponiveisPorTipo(tipoAtual);
     var selects = document.querySelectorAll('#adminTabelaPeriodos .admin-select-indice');
-    var indices = adminObterIndicesDisponiveis();
+
     selects.forEach(function(sel) {
         var valorAtual = sel.value;
-        var options = indices.map(function(idx) {
-            return '<option value="' + idx + '" ' + (idx === valorAtual ? 'selected' : '') + '>' + idx + '</option>';
-        }).join('');
+        var existeNaBase = adminIndiceExisteNaBase(valorAtual);
+        var compativel = adminIndiceCompativelComTipo(valorAtual, tipoAtual);
+
+        // Se o índice existe na base mas não é compatível, NÃO preservar (substitui)
+        if (existeNaBase && !compativel) {
+            var options = '';
+            if (indices.length === 0) {
+                options += '<option value="">-- Nenhum índice disponível --</option>';
+            } else {
+                indices.forEach(function(item) {
+                    var selected = (item.codigo === indices[0].codigo) ? 'selected' : '';
+                    var label = item.nome + ' (' + item.codigo + ')';
+                    options += '<option value="' + item.codigo + '" ' + selected + '>' + label + '</option>';
+                });
+            }
+            sel.innerHTML = options;
+            return;
+        }
+
+        // Se o índice não existe na base, preserva como opção especial (mesmo em mudança de tipo)
+        var existeNaLista = indices.some(function(item) {
+            return item.codigo === valorAtual;
+        });
+
+        var options = '';
+
+        if (valorAtual && !existeNaBase) {
+            options += '<option value="' + valorAtual + '" selected>' + valorAtual + ' (não cadastrado na base)</option>';
+        }
+
+        if (indices.length === 0) {
+            options += '<option value="">-- Nenhum índice disponível --</option>';
+        } else {
+            indices.forEach(function(item) {
+                var selected = (item.codigo === valorAtual && existeNaBase) ? 'selected' : '';
+                var label = item.nome + ' (' + item.codigo + ')';
+                options += '<option value="' + item.codigo + '" ' + selected + '>' + label + '</option>';
+            });
+        }
+
         sel.innerHTML = options;
+
+        if (!sel.value && indices.length > 0) {
+            sel.value = indices[0].codigo;
+        }
     });
 }
 
@@ -321,7 +460,6 @@ function adminColetarDados() {
         var inicio = inicioInput.value.trim();
         var fim = fimInput.value.trim();
 
-        // Coleta todas as linhas, mesmo se incompletas (a validação tratará)
         periodos.push({ indice: indice, inicio: inicio, fim: fim });
     });
 
@@ -330,6 +468,7 @@ function adminColetarDados() {
 
 function adminValidarDados(dados) {
     var erros = [];
+    var avisos = [];
 
     if (!dados.nome) {
         erros.push('Nome do encadeamento é obrigatório.');
@@ -341,7 +480,7 @@ function adminValidarDados(dados) {
 
     if (dados.periodos.length === 0) {
         erros.push('Adicione pelo menos um período.');
-        return erros;
+        return { erros: erros, avisos: avisos };
     }
 
     var regexMMAAAA = /^\d{2}\/\d{4}$/;
@@ -352,12 +491,26 @@ function adminValidarDados(dados) {
         return adminCompetenciaParaNumero(a.inicio) - adminCompetenciaParaNumero(b.inicio);
     });
 
+    var baseDisponivel = !!window.INDEXADORES_ATUALIZACAO;
+    var base = window.INDEXADORES_ATUALIZACAO || {};
+
     for (var i = 0; i < periodosOrdenados.length; i++) {
         var p = periodosOrdenados[i];
 
         if (!p.indice) {
             erros.push('Linha ' + (i+1) + ': Índice não selecionado.');
             continue;
+        }
+
+        if (baseDisponivel) {
+            if (!base[p.indice]) {
+                avisos.push('Linha ' + (i+1) + ': Índice "' + p.indice + '" não existe na base atual de indexadores. Será mantido no JSON, mas pode não ser reconhecido futuramente.');
+            } else {
+                var tipoIndexador = base[p.indice].tipo;
+                if (tipoIndexador !== dados.tipo) {
+                    avisos.push('Linha ' + (i+1) + ': Índice "' + p.indice + '" pertence ao tipo "' + tipoIndexador + '", mas o encadeamento é do tipo "' + dados.tipo + '".');
+                }
+            }
         }
 
         if (!p.inicio || !regexMMAAAA.test(p.inicio)) {
@@ -401,7 +554,7 @@ function adminValidarDados(dados) {
         periodoAnteriorFimNum = numFim;
     }
 
-    return erros;
+    return { erros: erros, avisos: avisos };
 }
 
 function adminExibirMensagem(texto, tipo) {
@@ -409,6 +562,7 @@ function adminExibirMensagem(texto, tipo) {
     if (!div) return;
     div.classList.remove('hidden', 'bg-green-100', 'text-green-700', 'bg-red-100', 'text-red-700', 'bg-amber-100', 'text-amber-700');
     div.textContent = texto;
+    div.style.whiteSpace = 'pre-wrap';
 
     if (tipo === 'success') {
         div.classList.add('bg-green-100', 'text-green-700');
@@ -435,7 +589,9 @@ function adminExportarJSON(dados) {
 
     var indices = [];
     periodosOrdenados.forEach(function(p) {
-        if (indices.indexOf(p.indice) === -1) indices.push(p.indice);
+        if (p.indice && indices.indexOf(p.indice) === -1) {
+            indices.push(p.indice);
+        }
     });
 
     var jsonObj = {
@@ -486,6 +642,27 @@ function adminImportarJSON(json) {
         return;
     }
 
+    var baseDisponivel = !!window.INDEXADORES_ATUALIZACAO;
+    var indicesNaoEncontrados = [];
+    var indicesTipoIncompativel = [];
+
+    if (baseDisponivel) {
+        var base = window.INDEXADORES_ATUALIZACAO;
+        json.periodos.forEach(function(p) {
+            if (p.indice) {
+                if (!base[p.indice]) {
+                    if (indicesNaoEncontrados.indexOf(p.indice) === -1) {
+                        indicesNaoEncontrados.push(p.indice);
+                    }
+                } else if (base[p.indice].tipo !== json.tipoParametro) {
+                    if (indicesTipoIncompativel.indexOf(p.indice) === -1) {
+                        indicesTipoIncompativel.push(p.indice);
+                    }
+                }
+            }
+        });
+    }
+
     var selectTipo = document.getElementById('adminTipoParametro');
     if (selectTipo) {
         var option = selectTipo.querySelector('option[value="' + json.tipoParametro + '"]');
@@ -505,11 +682,40 @@ function adminImportarJSON(json) {
     var tbody = document.getElementById('adminTabelaPeriodos');
     tbody.innerHTML = '';
 
+    // Importação: preservar índices incompatíveis.
     json.periodos.forEach(function(p) {
-        adminAdicionarLinhaPeriodo(p.indice, p.inicio, p.fim || '');
+        adminAdicionarLinhaPeriodo(p.indice, p.inicio, p.fim || '', true);
     });
 
-    adminExibirMensagem('✅ JSON importado com sucesso!', 'success');
+    var msg = '✅ JSON importado com sucesso!';
+
+    if (indicesNaoEncontrados.length > 0) {
+        msg += '\n⚠️ Aviso: os seguintes índices não foram encontrados na base atual: ' +
+            indicesNaoEncontrados.join(', ') +
+            '. Eles foram preservados, mas podem não ser reconhecidos.';
+    }
+
+    if (indicesTipoIncompativel.length > 0) {
+        msg += '\n⚠️ Aviso: os seguintes índices pertencem a outro tipo de parâmetro: ' +
+            indicesTipoIncompativel.join(', ') +
+            '. Eles foram preservados como incompatíveis com o tipo "' +
+            json.tipoParametro +
+            '".';
+    }
+
+    adminExibirMensagem(
+        msg,
+        (indicesNaoEncontrados.length > 0 || indicesTipoIncompativel.length > 0) ? 'warning' : 'success'
+    );
+
+    // Não chamar adminAtualizarSelectsIndice() aqui.
+    // As linhas importadas já foram criadas com preservarIncompativel = true.
+    // Chamar adminAtualizarSelectsIndice() aqui pode substituir índices incompatíveis preservados.
+}
+
+// Não chamar adminAtualizarSelectsIndice() aqui.
+// As linhas importadas já foram criadas com preservarIncompativel = true.
+// Chamar adminAtualizarSelectsIndice() aqui pode substituir índices incompatíveis preservados.
 }
 
 // =====================================================================
@@ -535,28 +741,54 @@ function adminCarregarParametroGuia5(file, tipoEsperado) {
                 return;
             }
 
+            var baseDisponivel = !!window.INDEXADORES_ATUALIZACAO;
+            var indicesNaoEncontrados = [];
+            var indicesTipoIncompativel = [];
+            if (baseDisponivel) {
+                var base = window.INDEXADORES_ATUALIZACAO;
+                json.periodos.forEach(function(p) {
+                    if (p.indice) {
+                        if (!base[p.indice]) {
+                            if (indicesNaoEncontrados.indexOf(p.indice) === -1) {
+                                indicesNaoEncontrados.push(p.indice);
+                            }
+                        } else if (base[p.indice].tipo !== json.tipoParametro) {
+                            if (indicesTipoIncompativel.indexOf(p.indice) === -1) {
+                                indicesTipoIncompativel.push(p.indice);
+                            }
+                        }
+                    }
+                });
+            }
+
             if (tipoEsperado === 'correcao_monetaria') {
                 window.parametrosCorrecaoAtual = json;
-                adminExibirMensagemGuia5(
-                    '✅ Parâmetros de correção carregados com sucesso!\n' +
-                    'Nome: ' + json.nome + '\n' +
-                    'Descrição: ' + (json.descricao || 'N/A') + '\n' +
-                    'Índices: ' + (json.indicesUtilizados ? json.indicesUtilizados.join(', ') : 'N/A') + '\n' +
-                    'Períodos: ' + json.periodos.length,
-                    'success',
-                    tipoEsperado
-                );
+                var msg = '✅ Parâmetros de correção carregados com sucesso!\n' +
+                          'Nome: ' + json.nome + '\n' +
+                          'Descrição: ' + (json.descricao || 'N/A') + '\n' +
+                          'Índices: ' + (json.indicesUtilizados ? json.indicesUtilizados.join(', ') : 'N/A') + '\n' +
+                          'Períodos: ' + json.periodos.length;
+                if (indicesNaoEncontrados.length > 0) {
+                    msg += '\n⚠️ Atenção: índices não encontrados na base: ' + indicesNaoEncontrados.join(', ');
+                }
+                if (indicesTipoIncompativel.length > 0) {
+                    msg += '\n⚠️ Atenção: índices incompatíveis com o tipo: ' + indicesTipoIncompativel.join(', ');
+                }
+                adminExibirMensagemGuia5(msg, 'success', tipoEsperado);
             } else if (tipoEsperado === 'juros_mora') {
                 window.parametrosJurosAtual = json;
-                adminExibirMensagemGuia5(
-                    '✅ Parâmetros de juros carregados com sucesso!\n' +
-                    'Nome: ' + json.nome + '\n' +
-                    'Descrição: ' + (json.descricao || 'N/A') + '\n' +
-                    'Índices: ' + (json.indicesUtilizados ? json.indicesUtilizados.join(', ') : 'N/A') + '\n' +
-                    'Períodos: ' + json.periodos.length,
-                    'success',
-                    tipoEsperado
-                );
+                var msg = '✅ Parâmetros de juros carregados com sucesso!\n' +
+                          'Nome: ' + json.nome + '\n' +
+                          'Descrição: ' + (json.descricao || 'N/A') + '\n' +
+                          'Índices: ' + (json.indicesUtilizados ? json.indicesUtilizados.join(', ') : 'N/A') + '\n' +
+                          'Períodos: ' + json.periodos.length;
+                if (indicesNaoEncontrados.length > 0) {
+                    msg += '\n⚠️ Atenção: índices não encontrados na base: ' + indicesNaoEncontrados.join(', ');
+                }
+                if (indicesTipoIncompativel.length > 0) {
+                    msg += '\n⚠️ Atenção: índices incompatíveis com o tipo: ' + indicesTipoIncompativel.join(', ');
+                }
+                adminExibirMensagemGuia5(msg, 'success', tipoEsperado);
             }
         } catch (err) {
             adminExibirMensagemGuia5('Erro ao ler o arquivo: ' + err.message, 'error', tipoEsperado);
@@ -578,6 +810,7 @@ function adminExibirMensagemGuia5(texto, tipo, tipoEsperado) {
         div.className += ' bg-slate-100 text-slate-600';
     }
     div.textContent = texto;
+    div.style.whiteSpace = 'pre-wrap';
 }
 
 // =====================================================================
@@ -597,7 +830,6 @@ function coletarDiferencasParaAtualizacao() {
 
         var valorTexto = diffEl.textContent.trim();
         var valorNum = adminParseValorBrasileiro(valorTexto);
-        // Não ignora zero, apenas NaN
         if (isNaN(valorNum)) return;
 
         resultados.push({
@@ -648,11 +880,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     msgDiv.classList.add('hidden');
                     msgDiv.textContent = '';
                 }
+                if (!window.INDEXADORES_ATUALIZACAO) {
+                    adminExibirMensagem(
+                        'Aviso: base de indexadores não carregada. Verifique data/indexadores.js.',
+                        'warning'
+                    );
+                }
+                adminAtualizarSelectsIndice();
             }
         }
     });
 
-    // Botões da Guia 5
     var btnCorrecao = document.getElementById('btnCarregarCorrecao');
     var fileCorrecao = document.getElementById('fileInputCorrecao');
     if (btnCorrecao && fileCorrecao) {
